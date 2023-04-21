@@ -1,0 +1,23 @@
+---
+title: "oreb_code"
+author: "Vivian Moore"
+date: "4/3/2023"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+```{r}
+#predict oreb of home team
+home_oreb = lmer(sqrt(Home_oreb)~ Home.ID + Away.ID + Home_TPG + Away_TPG + Home_TSG + Away_TSG + Home_TOG + Away_TOG + Home_PPG + Away_PPG + Home_SPG + Away_SPG + Home_OPG + Away_OPG + (1|Day), data = KnownHomeAwayStats)
+
+#predict OREB of away team
+away_oreb = lmer(sqrt(Away_oreb)~ Home.ID + Away.ID + Home_TPG + Away_TPG + Home_TSG + Away_TSG + Home_TOG + Away_TOG + Home_PPG + Away_PPG + Home_SPG + Away_SPG + Home_OPG + Away_OPG + (1|Day), data = KnownHomeAwayStats)
+
+#prediction = (result of home_oreb)^2 + (result of away_oreb)^2
+```

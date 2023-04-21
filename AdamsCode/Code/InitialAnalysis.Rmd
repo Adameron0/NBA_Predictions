@@ -1,0 +1,32 @@
+Packages
+
+```{r}
+library(readr)
+```
+
+
+Import Data Sets
+```{r, message = F}
+direct = "../Datasets/"
+
+# Do not change below, just change directory above
+
+player = read_csv(paste(direct,"player_data.csv", sep = ""))[-1]
+rank = read_csv(paste(direct,"rank_data.csv", sep = ""))[-1]
+
+rank
+```
+
+# Spread Predictions
+
+## By Team
+
+### Each Team Score
+
+#### Simple Linear Model
+
+```{r}
+lm.homepts = lm(PTS_home)
+```
+
+

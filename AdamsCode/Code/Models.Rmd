@@ -1,0 +1,289 @@
+---
+title: "Models"
+output: pdf_document
+---
+
+Import Libraries
+```{r}
+library(readr)
+library(lmerTest)
+library(bestglm)
+library(leaps)
+library(glmnet)
+```
+
+Import Data
+
+```{r}
+games = read_csv('../Datasets/Final_Data.csv')[-1]
+games$Total_Points = games$Home_pts+games$Away_pts
+```
+
+# General Models (No Train-Test Split)
+
+
+## Total Points
+
+```{r}
+# Create dataset just for these models
+tp_games = games
+
+# Add new total points variable
+
+tp_games$TotalPoints = tp_games$Home_pts + tp_games$Away_pts
+```
+
+### Determine if Total Points for matchup is effected by who is Home and Away
+
+Compare total points for each match up, and see if significant variation is explained by Home ID
+
+```{r}
+tp_test.1 = tp_games[c("Matchup_ID","Home ID","Away ID", "Left_ID","Right_ID","TotalPoints","Day")]
+```
+
+```{r}
+tp_aov1 = aov(TotalPoints~ as.factor(`Home ID`)+as.factor(`Away ID`), data = tp_test.1)
+
+summary(tp_aov1)
+```
+
+Home team and Away team are both significant. I.e. Significant variation is explained by Away team even when home team is accounted for.
+
+
+```{r}
+tp_aov2 = aov(TotalPoints ~ as.factor(Left_ID)+as.factor(Right_ID), data = tp_test.1)
+
+summary(tp_aov2)
+```
+
+Neither Left nor Right team is significant, implying that the specific match up does not have a major effect on total point outcome. This is counterintuitive as one would expect the teams that play to have a bigger effect than the venue in which they play.
+
+```{r}
+tp_aov3 = lm(TotalPoints ~ as.factor(Matchup_ID)+as.factor(`Home ID`), data = tp_test.1)
+
+anova(tp_aov3)
+```
+
+Even after accounting for match up, the home team is still significant.
+
+
+Ridge Regression
+
+```{r}
+traintestsplit = function(df, day){
+  df = na.omit(df)
+  day_col = df["Day"]
+  train = df[which(day_col < day),]
+  test = df[which(day_col >= day),]
+
+  return(list(train, test))
+}
+
+
+```
+
+```{r}
+HA_predictors = c(1,2,4,7,17:28)
+HA_response = c(52)
+
+
+tt_output = traintestsplit(games,80)
+trainX = tt_output[[1]][HA_predictors]
+trainy = tt_output[[1]][HA_response]
+
+testX = tt_output[[2]][HA_predictors]
+testy = tt_output[[2]][HA_response]
+
+tt_output
+```
+
+```{r}
+x = as.matrix(trainX)
+y_train = as.matrix(trainy)
+
+x_test = as.matrix(testX)
+y_test = as.matrix(testy)
+
+lambdas <- 10^seq(2, -3, by = -.1)
+ridge_reg = glmnet(x, y_train, nlambda = 25, alpha = 0, family = "gaussian", lambda = lambdas)
+
+summary(ridge_reg)
+```
+
+```{r}
+cv_ridge <- cv.glmnet(x, y_train, alpha = 0, lambda = lambdas)
+optimal_lambda <- cv_ridge$lambda.min
+optimal_lambda
+```
+
+```{r}
+# Compute R^2 from true and predicted values
+eval_results <- function(true, predicted, df) {
+  MAE = sum(abs(predicted-true))/nrow(df)
+
+  
+  # Model performance metrics
+  MAE
+  
+}
+
+# Prediction and evaluation on train data
+predictions_train <- predict(ridge_reg, s = optimal_lambda, newx = x)
+eval_results(trainy, predictions_train, trainX)
+
+# Prediction and evaluation on test data
+predictions_test <- predict(ridge_reg, s = optimal_lambda, newx = x_test)
+eval_results(testy, predictions_test, testX)
+```
+
+Ridge 2
+
+```{r}
+HA_predictors = c(1,2,4,7,17:31)
+HA_response = c(52)
+
+
+tt_output = traintestsplit(games,80)
+trainX = tt_output[[1]][HA_predictors]
+
+trainy = tt_output[[1]][HA_response]
+
+testX = tt_output[[2]][HA_predictors]
+
+
+testy = tt_output[[2]][HA_response]
+
+tt_output
+```
+
+```{r}
+x = as.matrix(trainX)
+y_train = as.matrix(trainy)
+
+x_test = as.matrix(testX)
+y_test = as.matrix(testy)
+
+lambdas <- 10^seq(2, -3, by = -.1)
+ridge_reg = glmnet(x, y_train, nlambda = 25, alpha = 0, family = "gaussian", lambda = lambdas)
+
+summary(ridge_reg)
+```
+
+```{r}
+cv_ridge <- cv.glmnet(x, y_train, alpha = 0, lambda = lambdas)
+optimal_lambda <- cv_ridge$lambda.min
+optimal_lambda
+```
+
+```{r}
+# Compute R^2 from true and predicted values
+eval_results <- function(true, predicted, df) {
+  MAE = sum(abs(predicted-true))/nrow(df)
+
+  
+  # Model performance metrics
+  MAE
+  
+}
+
+# Prediction and evaluation on train data
+predictions_train <- predict(ridge_reg, s = optimal_lambda, newx = x)
+eval_results(trainy, predictions_train, trainX)
+
+# Prediction and evaluation on test data
+predictions_test <- predict(ridge_reg, s = optimal_lambda, newx = x_test)
+eval_results(testy, predictions_test, testX)
+```
+
+
+
+
+
+Fully Saturated LM
+```{r}
+
+fslm = lm(Total_Points~.-`Home ID`+as.factor(`Home ID`)
+                        -`Away ID`+as.factor(`Away ID`)
+                        -Matchup_ID + as.factor(Matchup_ID)
+                        -Left_ID + as.factor(Left_ID)
+                        -Right_ID+as.factor(Right_ID),
+            data = na.omit(games)[c(1,2,4,7,17:31,52)])
+```
+
+```{r}
+pred = predict(fslm)
+actual = na.omit(games)[52]
+
+sum(abs(pred-actual))/nrow(na.omit(games))
+
+```
+
+No LR Indicators
+```{r}
+fslm = lm(Total_Points~.-`Home ID`+as.factor(`Home ID`)
+                        -`Away ID`+as.factor(`Away ID`),
+            data = na.omit(games)[c(1,2,4,7,17:28,52)])
+
+pred = predict(fslm)
+actual = na.omit(games)[52]
+
+sum(abs(pred-actual))/nrow(na.omit(games))
+
+```
+
+No Home/Away Indicators
+```{r}
+fslm = lm(Total_Points~.-Left_ID+as.factor(Left_ID)
+                        -Right_ID+as.factor(Right_ID)
+                        -Matchup_ID+as.factor(Matchup_ID),
+            data = na.omit(games)[c(4,29:31,40:51,52)])
+
+pred = predict(fslm)
+actual = na.omit(games)[52]
+
+sum(abs(pred-actual))/nrow(na.omit(games))
+
+```
+
+
+Poisson
+```{r}
+fslm = glm(Total_Points~.-`Home ID`+as.factor(`Home ID`)
+                        -`Away ID`+as.factor(`Away ID`)
+                        -Matchup_ID + as.factor(Matchup_ID)
+                        -Left_ID + as.factor(Left_ID)
+                        -Right_ID+as.factor(Right_ID),
+            data = na.omit(games)[c(1,2,4,7,17:31,52)], family = poisson)
+
+pred = exp(predict(fslm))
+actual = na.omit(games)[52]
+
+sum(abs(pred-actual))/nrow(na.omit(games))
+```
+
+Poisson no H/A indicators
+
+```{r}
+fslm = glm(Total_Points~.-Left_ID+as.factor(Left_ID)
+                        -Right_ID+as.factor(Right_ID)
+                        -Matchup_ID+as.factor(Matchup_ID),
+            data = na.omit(games)[c(4,29:31,40:51,52)], family = poisson)
+
+pred = exp(predict(fslm))
+actual = na.omit(games)[52]
+
+sum(abs(pred-actual))/nrow(na.omit(games))
+
+```
+
+No LR Indicators
+```{r}
+fslm = glm(Total_Points~.-`Home ID`+as.factor(`Home ID`)
+                        -`Away ID`+as.factor(`Away ID`),
+            data = na.omit(games)[c(1,2,4,7,17:28,52)], family = poisson)
+
+pred = exp(predict(fslm))
+actual = na.omit(games)[52]
+
+sum(abs(pred-actual))/nrow(na.omit(games))
+```

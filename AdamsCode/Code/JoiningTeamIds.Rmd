@@ -1,0 +1,62 @@
+
+Import Libraries
+```{r}
+library(readr)
+```
+
+
+Import Data Sets
+```{r, message = F}
+
+direct = "../Datasets/"
+
+# Do not change below, just change directory above
+
+team_id = read_csv(paste(direct,"teams.csv", sep = ""))[c('TEAM_ID','NICKNAME')]
+spreads = read_csv(paste(direct,"PredictedSpreads.csv", sep = ""))
+
+# Add row number to spreads for sorting
+spreads$Row = seq(1:nrow(spreads))
+```
+
+
+
+Join By team Nickname
+```{r}
+#Join Away Team ID
+
+spread_ids = merge(x = spreads, y = team_id,
+      by.x = "Away", by.y = "NICKNAME", 
+      all.x = T, all.y = F, sort = F)
+
+names(spread_ids)[5] = "Away ID"
+
+# Sort into original Order
+spread_ids = spread_ids[order(spread_ids$Row),]
+
+#Join Home Team ID
+
+spread_ids = merge(x = spread_ids, y = team_id,
+      by.x = "Home", by.y = "NICKNAME", 
+      all.x = T, all.y = F, sort = F)
+
+names(spread_ids)[6] = "Home ID"
+
+# Sort into original Order
+spread_ids = spread_ids[order(spread_ids$Row),]
+
+spread_ids = spread_ids[c(5,6,3)]
+```
+
+Relabel Datatypes
+
+```{r}
+spread_ids$Spread_Pred = as.numeric(spread_ids$Spread_Pred)
+```
+
+Save to csv
+
+```{r}
+write.csv(spread_ids, paste(direct,"PredictedSpreadsIDS.csv", sep = ""), row.names=FALSE)
+```
+

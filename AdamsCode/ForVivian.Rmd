@@ -1,0 +1,359 @@
+---
+title: "Final Total Points Models"
+output: pdf_document
+---
+Import Libraries
+```{r}
+library(readr)
+library(lmerTest)
+library(bestglm)
+library(leaps)
+library(glmnet)
+library(MASS)
+```
+Import Data
+
+```{r}
+games = na.omit(read_csv('../Datasets/Final_Data.csv')[-1])
+
+# Specify Factor Data type
+factor_vars = c("Home_ID","Away_ID","Left_ID","Right_ID","Matchup_ID")
+games[factor_vars] = lapply(games[factor_vars],factor)
+
+games$Total_Points = games$Home_pts + games$Away_pts
+
+KnownHomeAwayStats = games[c(52,1,2,4:7,17:29)]
+KnownLeftRightStats = games[c(52,4,29,32,33,40:51)]
+```
+# Define MAE Function
+
+```{r}
+MAE = function (predicted, actual){
+  abs_err = abs(actual-predicted)
+  
+  mae = mean(abs_err)
+  return(mae)
+}
+```
+
+
+
+
+
+# Linear Models and Stepwise Selection
+
+## Home and Away Individual
+
+
+### Predict Home Points
+
+
+
+```{r}
+HomePoints.LM1 = lm(Home_pts ~ ., 
+                    ## Remove Total points and Away pts
+                    data = KnownHomeAwayStats[-c(1,6)])
+
+MAE(predict(HomePoints.LM1), KnownHomeAwayStats$Home_pts)
+```
+Pred Home points Includes everything except Away Points
+
+MAE = 5.978
+
+
+### Predict Away Points
+
+
+```{r}
+AwayPoints.LM1 = lm(Away_pts ~ ., 
+                    ## Remove Total points and Away pts
+                    data = KnownHomeAwayStats[-c(1,5)])
+
+MAE(predict(AwayPoints.LM1), KnownHomeAwayStats$Away_pts)
+```
+Pred away points Includes everything except home Points
+
+MAE = 6.036
+
+
+### Add Models Together
+
+```{r}
+MAE(predict(AwayPoints.LM1)+predict(HomePoints.LM1),
+    KnownHomeAwayStats$Total_Points)
+```
+
+MAE for summing together is 9.666
+
+### Drop 1 Test
+
+Drops one variable in model and gives F-Test P-value for comparing full model to model with 1 less (Significant p implies adding the variable accounts for variance not explained by all other variables)
+
+#### Home Points
+```{r}
+drop1(HomePoints.LM1, test = "F")[c(5,6)]
+```
+
+Home and away Team account for significant variance, Home_SPG also could account for some
+
+#### Away Points
+```{r}
+drop1(AwayPoints.LM1, test = "F")[c(5,6)]
+```
+
+Home and away explain significant variance in Away points, as well as predicted spread and Away_OPG, and potentially Away_TSG.
+
+
+High quantity of low F-Values could indicate some variables are insignificant and account for little variability. Stepwise selection to minimize AIC is benificial.
+
+
+### Stepwise Selection (Minimize AIC)
+
+
+#### Home Stepwise
+
+```{r}
+null = lm(Home_pts ~ 1, data = KnownHomeAwayStats[-c(1,6)])
+
+HomeStepmod = stepAIC(HomePoints.LM1, null,
+        direction = "both", steps = 100,
+        trace = 0)
+
+drop1(HomeStepmod, test = "F")[c(5,6)]
+
+MAE(predict(HomeStepmod),KnownHomeAwayStats[-c(1,6)]$Home_pts)
+```
+MAE = 8.46212
+
+#### Away Stepwise
+```{r}
+null = lm(Away_pts ~ 1, data = KnownHomeAwayStats[-c(1,5)])
+
+AwayStepmod = stepAIC(AwayPoints.LM1, null,
+        direction = "both", steps = 100,
+        trace = 0)
+
+drop1(AwayStepmod, test = "F")[c(5,6)]
+
+MAE(predict(AwayStepmod),KnownHomeAwayStats[-c(1,5)]$Away_pts)
+```
+
+MAE = 8.317 (down from 10.909)
+
+
+#### MAE From Combined
+
+```{r}
+MAE(predict(AwayStepmod) + predict(HomeStepmod), KnownHomeAwayStats$Total_Points)
+```
+MAE = 13.793 (down from 18.596)
+
+### Refit Model using all variables from sub-models
+
+```{r}
+TotalPoints.LM0 = lm(Total_Points ~ Home_ID+Day+Spread_Pred
+                     +Away_TSG+Away_PPG + Home_TSG, 
+                    ## Remove home points and Away pts
+                    data = KnownHomeAwayStats[-c(5,6)])
+
+MAE(predict(TotalPoints.LM0), KnownHomeAwayStats$Total_Points)
+```
+
+MAE = 14.28695
+
+### Predict Total Points Without Home/Away Individual Points
+
+```{r}
+TotalPoints.LM1 = lm(Total_Points ~ ., 
+                    ## Remove home points and Away pts
+                    data = KnownHomeAwayStats[-c(5,6)])
+
+MAE(predict(TotalPoints.LM1), KnownHomeAwayStats$Total_Points)
+```
+
+MAE = 9.666349 (Same as initial combined MAE)
+
+#### Drop 1 Test
+
+```{r}
+drop1(TotalPoints.LM1, test = "F")[c(5,6)]
+```
+
+Home ID and away ID are both contribute to significant variance not explained by other variables. Away OPG could also explain significant variance.
+
+#### Stepwise
+
+```{r}
+null = lm(Total_Points ~ 1, data = KnownHomeAwayStats[-c(5,6)])
+
+TotalPointsStepmod = stepAIC(TotalPoints.LM1, null,
+        direction = "both", steps = 100,
+        trace = 0)
+
+drop1(TotalPointsStepmod, test = "F")[c(5,6)]
+
+MAE(predict(TotalPointsStepmod),KnownHomeAwayStats[-c(5,6)]$Total_Points)
+```
+
+MAE is 13.70024 (down from 18.5955 but higher than best MAE from individual models with MAE of 13.793)
+
+
+## Left and Right
+
+
+```{r}
+LR_Data = KnownLeftRightStats[-c(4,5)]
+```
+
+Left and right removes the need to analyze left or right individually, because there is no "home field advantage" that is accounted for. These models essentiually test the assumption that whoever the home or away team is, will have very little impact on the total points scored in the game.
+
+### Predict Total Points Without Left/Right Individual Points
+
+```{r}
+TotalPoints.LM1 = lm(Total_Points ~ ., 
+                    ## Remove Left points and Right pts
+                    data = KnownLeftRightStats[-c(4,5)])
+
+MAE(predict(TotalPoints.LM1), LR_Data$Total_Points)
+```
+
+MAE = 10.979 (Already lwoer than best MAE with Home and Away)
+
+#### Drop 1 Test
+
+```{r}
+drop1(TotalPoints.LM1, test = "F")[c(5,6)]
+```
+
+None of the variables explain significant variance that is not explained by other variables in the data set.
+
+#### Stepwise
+
+```{r}
+null = lm(Total_Points ~ 1, data = KnownLeftRightStats[-c(4,5)])
+
+TotalPointsStepmod = stepAIC(TotalPoints.LM1, null,
+        direction = "both", steps = 100,
+        trace = 0)
+
+drop1(TotalPointsStepmod, test = "F")[c(5,6)]
+
+MAE(predict(TotalPointsStepmod),KnownLeftRightStats[-c(4,5)]$Total_Points)
+```
+
+MAE is 15.024 (up from 12.645)
+
+
+
+
+
+
+
+# Random Effects Analysis
+
+## Day Random Effect
+
+### Left Right
+```{r, warning = F}
+TotalPoints.LR.LMER1 = lmer(Total_Points~.-Day + (1|as.factor(Day)),
+                         data = LR_Data)
+
+MAE(predict(TotalPoints.LR.LMER1), LR_Data$Total_Points)
+VarCorr(TotalPoints.LR.LMER1)
+```
+
+MAE = 9.6052
+
+Total points changes roughly +- 7.8 day to day
+
+
+
+### Home Only
+
+```{r}
+home_pred = KnownHomeAwayStats[-c(1,6)]
+```
+
+
+```{r, warning = F}
+TotalPoints.H.LMER1 = lmer(Home_pts~.-Day + (1|as.factor(Day)),
+                         data = home_pred)
+
+MAE(predict(TotalPoints.H.LMER1), home_pred$Home_pts)
+VarCorr(TotalPoints.H.LMER1)
+```
+
+MAE = 5.16
+
+Home points changes roughly +- 11.52 day to day
+
+
+### With previous best Home Points Model
+
+```{r}
+TotalPoints.H.LMER2 = lmer(Home_pts~Home_ID+Away_ID+Spread_Pred+Home_TSG
+                           + Day-Day + (1|as.factor(Day)),
+                         data = home_pred)
+
+MAE(predict(TotalPoints.H.LMER2), home_pred$Home_pts)
+VarCorr(TotalPoints.H.LMER2)
+```
+
+MAE = 8.46 (Less than stepwise linear model from before)
+
+Total points has no significant change Day-to-Day for home team.
+
+
+### Away Only
+
+```{r}
+away_pred = KnownHomeAwayStats[-c(1,5)]
+```
+
+
+```{r, warning = F}
+TotalPoints.A.LMER1 = lmer(Away_pts~.-Day + (1|as.factor(Day)),
+                         data = away_pred)
+
+MAE(predict(TotalPoints.A.LMER1), away_pred$Away_pts)
+VarCorr(TotalPoints.A.LMER1)
+```
+
+MAE = 5.06
+
+Away points changes roughly +- 7.62 day to day
+
+### With previous best Away Points Model
+
+```{r}
+TotalPoints.A.LMER2 = lmer(Away_pts~Home_ID+Day+Spread_Pred+Away_TSG
+                           + Away_PPG -Day + (1|as.factor(Day)),
+                         data = away_pred)
+
+MAE(predict(TotalPoints.A.LMER2), away_pred$Away_pts)
+VarCorr(TotalPoints.A.LMER2)
+```
+
+MAE = 8.3579
+
+### Combine Models
+
+```{r}
+MAE(predict(TotalPoints.A.LMER2)+predict(TotalPoints.H.LMER2),LR_Data$Total_Points)
+```
+MAE is 13.780
+
+### Refit using optimal vars
+
+```{r}
+TotalPoints.LMER3 = lmer(KnownHomeAwayStats$Total_Points~
+                           Home_ID+Away_ID+Spread_Pred+Home_TSG
+                           + Away_TSG + Away_PPG
+                           + Day-Day + (1|as.factor(Day)),
+                         data = home_pred)
+
+MAE(predict(TotalPoints.LMER3), KnownHomeAwayStats$Total_Points)
+VarCorr(TotalPoints.A.LMER2)
+```
+
+MAE after refitting is 13.685

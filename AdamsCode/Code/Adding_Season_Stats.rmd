@@ -1,0 +1,87 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(readr)
+
+games = read_csv('../Datasets/For_Henoc.csv')[-1]
+
+games$Home_TPG = rep(0, nrow(games))
+games$Away_TPG = rep(0, nrow(games))
+games$Home_TSG = rep(0, nrow(games))
+games$Away_TSG = rep(0, nrow(games))
+games$Home_TOG = rep(0, nrow(games))
+games$Away_TOG = rep(0, nrow(games))
+games$Home_PPG = rep(0, nrow(games))
+games$Away_PPG = rep(0, nrow(games))
+games$Home_SPG = rep(0, nrow(games))
+games$Away_SPG = rep(0, nrow(games))
+games$Home_OPG = rep(0, nrow(games))
+games$Away_OPG = rep(0, nrow(games))
+```
+
+```{r}
+games
+```
+
+```{r}
+
+teams = data.frame(Row = c(1:nrow(games),1:nrow(games)),
+          Team_ID = c(games$`Home ID`, games$`Away ID`),
+           Day = rep(games$Day,2),
+           Points = c(games$Home_pts, games$Away_pts),
+          oreb = c(games$Home_oreb,games$Away_oreb),
+          FGPct = c(games$Home_FGPct, games$Away_FGPct),
+          ThreePct = c(games$Home_3Pct, games$Away_3Pct),
+          Steals = c(games$Home_Steals, games$Away_Steals)
+          )
+
+
+team_Ids = unique(teams$Team_ID)
+
+add_season_stats = function (){
+  
+  games2 = games
+  
+  for (row in 1:nrow(games)){
+    Home_ID = games$`Home ID`[row]
+    Away_ID = games$`Away ID`[row]
+    
+    all_home = teams[which(teams$Team_ID == Home_ID),]
+    all_away = teams[which(teams$Team_ID == Away_ID),]
+    
+    prev_home = all_home[which(all_home$Day < games$Day[row]),]
+    prev_away = all_away[which((all_away$Day) < games$Day[row]),]
+    
+    games2$Away_TPG[row] = sum(prev_away$Points)
+    games2$Home_TPG[row] = sum(prev_home$Points)
+    
+    games2$Home_TSG[row] = sum(prev_home$Steals)
+    games2$Away_TSG[row] = sum(prev_away$Steals)
+    
+    games2$Home_TOG[row] = sum(prev_home$oreb)
+    games2$Away_TOG[row] = sum(prev_away$oreb)
+    
+    games2$Home_PPG[row] = sum(prev_home$Points)/length(prev_home$Points)
+    games2$Away_PPG[row] = sum(prev_away$Points)/length(prev_away$Points)
+    
+    games2$Home_SPG[row] = sum(prev_home$Steals)/length(prev_home$Steals)
+    games2$Away_SPG[row] = sum(prev_away$Steals)/length(prev_away$Steals)
+    
+    games2$Home_OPG[row] = sum(prev_home$oreb)/length(prev_home$oreb)
+    games2$Away_OPG[row] = sum(prev_away$oreb)/length(prev_away$oreb)
+    
+    
+    
+  }
+  
+  return(games2)
+}
+
+games = add_season_stats()
+
+write.csv(games, "../Datasets/Final_Data.csv")
+```
+

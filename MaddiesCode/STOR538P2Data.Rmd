@@ -1,0 +1,136 @@
+---
+title: "STOR538 P2"
+author: "Madison Duffy"
+date: "2023-03-28"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readr)
+library(tidyverse)
+library(dplyr)
+library(MASS)
+```
+
+```{r}
+library(caret)
+```
+
+```{r}
+data = read_csv("~/Downloads/Final_Data.csv")
+```
+
+```{r}
+cut_data = data[,c(6:52)]
+head(cut_data)
+cut_data = na.omit(cut_data)
+```
+
+```{r}
+cut_data2 = data[,c(6,7:29, 33:52)]
+cut_data2 = na.omit(cut_data2) #eliminate spread_pred? not sure what that is
+```
+
+```{r}
+full_mod = lm(Spread~., data = cut_data2)
+```
+
+```{r}
+step_mod = stepAIC(full_mod, direction = "both", trace = FALSE)
+summary(step_mod)
+```
+```{r}
+other_mod = lm(Spread~(Home_pts+Away_pts+Home_oreb+Away_oreb+Home_FGPct+Away_FGPct+Home_3Pct+Away_3Pct+Home_TPG+Away_TPG+Home_TSG+Away_TSG+Home_TOG+Away_TOG+ Home_PPG+Away_PPG+Home_SPG+Away_SPG+Home_OPG+Away_OPG+Left_pts+Right_pts+Left_FGPct+Right_FGPct+Left_oreb+Right_oreb+Left_3Pct+Right_3Pct+Left_TPG+Right_TPG+Left_TSG+Right_TSG+Left_TOG+Right_TOG+Left_PPG+Right_PPG+Left_SPG+Right_SPG+Left_OPG+Right_OPG)^2, data = cut_data2)
+
+summary(other_mod)
+```
+```{r}
+new_other_mod = lm(Spread~(Home_pts+Away_pts+Home_oreb+Away_oreb+Home_FGPct+Away_FGPct+Home_3Pct+Away_3Pct+Away_TPG+Away_TSG+Home_TOG+Away_TOG+ Away_PPG+Away_SPG+Away_OPG)^2, data = cut_data2)
+summary(new_other_mod)
+```
+
+Model List:
+full_mod - used cut_data2
+step_mod - based on full_mod
+other_mod - cut_data2, but included all interactions
+new_other_mod - cut_data2, included limited variables (and all interactions of limited variables)
+
+```{r}
+set.seed(400)
+
+sample = createDataPartition(cut_data2$Spread, p = 0.8, list = FALSE)
+
+training = cut_data2[sample, ]
+testing = cut_data2[-sample, ]
+
+cv_model = lm(Spread~., training)
+
+predictions = predict(cv_model, testing)
+
+data.frame( R2 = R2(predictions, testing$Spread),
+            RMSE = RMSE(predictions, testing$Spread),
+            MAE = MAE(predictions, testing$Spread))
+```
+
+```{r}
+set.seed(400)
+
+train_control = trainControl(method = "cv", number = 10)
+
+kcv_model <- train(Spread ~., data = cut_data2,
+               method = "lm",
+               trControl = train_control)
+print(kcv_model)
+```
+
+TOTAL PREDICTION
+
+```{r}
+cut_data2$Total = cut_data2$Home_pts + cut_data2$Away_pts
+head(cut_data2)
+```
+
+
+```{r}
+full_glm_mod = glm(Total~., family = quasi(), data = cut_data2)
+summary(full_glm_mod)
+```
+
+```{r}
+set.seed(400)
+
+train_control2 = trainControl(method = "cv", number = 10)
+
+kcv_model2 <- train(Total ~., data = cut_data2,
+               method = "glm",
+               trControl = train_control2)
+print(kcv_model2)
+```
+
+```{r}
+set.seed(400)
+
+sample2 = createDataPartition(cut_data2$Total, p = 0.8, list = FALSE)
+
+training2 = cut_data2[sample2, ]
+testing2 = cut_data2[-sample2, ]
+
+cv_model2 = lm(Total~., training2)
+
+predictions2 = predict(cv_model2, testing2)
+
+data.frame( R2 = R2(predictions2, testing2$Total),
+            RMSE = RMSE(predictions2, testing2$Total),
+            MAE = MAE(predictions2, testing2$Total))
+```
+
+```{r}
+summary(cv_model2)
+```
+

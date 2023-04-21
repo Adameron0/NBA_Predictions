@@ -1,0 +1,343 @@
+Creating a data set that only includes things we can know before the game starts
+
+
+- Home Team
+- Away Team
+- Team Records
+- Predicted RAPTOR Spread
+
+Install Packages
+
+```{r, warning = F}
+library(readr)
+library('nbastatR')
+Sys.setenv("VROOM_CONNECTION_SIZE"= 1000000)
+
+library(lme4)
+library(pbkrtest)
+```
+
+
+Get Real Game Data
+```{r, warning = F}
+
+real_game_data = function (){
+  #Import Data
+  games = game_logs(
+    seasons = 2023,
+    league = "NBA",
+    result_types = "team",
+    season_types = "Regular Season",
+    nest_data = F
+  )
+  
+  # Get list of all game ids
+  all_games = unique(games$idGame)
+  
+  # Initialize DataFrame
+  
+  game_data <- data.frame(Game_id = c(0),
+                          Day = c(0),
+                         Home_ID = c(0),    Away_ID = c(0),
+                         Home_pts = c(0),   Away_pts = c(0),
+                         Spread = c(0),
+                         Home_oreb = c(0),  Away_oreb = c(0),
+                         Home_FGPct = c(0), Away_FGPct = c(0),
+                         Home_3Pct = c(0),  Away_3Pct = c(0),
+                         Home_Steals = c(0), Away_Steals = c(0)
+                         
+                         )
+  
+  # Loop through each game and append data to dataframe
+  for (game in all_games){
+    
+    # Select Home and Away Rows for game
+    rows = games[games$idGame == game,]
+    away = rows[rows$locationGame == "A",]
+    home = rows[rows$locationGame == "H",]
+    
+    # Team IDs
+    away_id = away$idTeam
+    home_id = home$idTeam
+    
+    # Data we will be predicting
+    
+    #Team Points Scored & Spread
+    home_pts = home$ptsTeam
+    away_pts = away$ptsTeam
+    spread = home_pts - away_pts
+    
+    # Offensive Rebounds
+    home_oreb = home$orebTeam
+    away_oreb = away$orebTeam
+    
+    # Game Date
+    # Subtract 19282 since this is day before season starts
+    date = home$dateGame - 19282
+    
+    # Field Goal Percentage
+    Home_FGPct = home$pctFGTeam
+    Away_FGPct = away$pctFGTeam
+    
+    #Three point percentage
+    Home_3Pct = home$pctFG3Team
+    Away_3Pct = away$pctFG3Team
+    
+    # Steals/Game
+    Home_Steals = home$stlTeam
+    Away_Steals = away$stlTeam
+    
+    
+    # Add all info to dataframe
+    
+    new_row = c(Game_id = game,
+                Day = date,
+                Home_ID = home_id,
+                Away_ID = away_id,
+                Home_pts = home_pts,
+                Away_pts = away_pts,
+                Spread = spread,
+                Home_oreb = home_oreb,
+                Away_oreb = away_oreb,
+                Home_FGPct = Home_FGPct,
+                Away_FGPct = Away_FGPct,
+                Home_3Pct = Home_3Pct,
+                Away_3Pct = Away_3Pct,
+                Home_Steals = Home_Steals,
+                Away_Steals = Away_Steals
+                )
+    
+    game_data <- rbind(game_data,new_row)
+  }
+  
+  # Remove placeholder row
+  game_data <- game_data[-1,]
+  
+  return(game_data)
+}
+```
+
+```{r}
+game_data = read_csv("../Datasets/Final_Data.csv")
+```
+
+
+
+Define Matchup as any time two teams play, regardless of home or away status. Each matchup has a specific unique id associated with it.
+
+Determine how many digits are needed for individual uniqe team id
+
+```{r}
+# Make data frame where column n is digit n and each row is a team id
+digits_list = strsplit(as.character(game_data$Home_ID),"")
+digits_df = data.frame(t(data.frame(digits_list)))
+row.names(digits_df) = NULL
+
+# Count number of unique values for each digit
+# And print which digits differ between teams
+
+for (column in 1:ncol(digits_df)){
+  unique_vals = unique(digits_df[[column]])
+  if (length(unique_vals) != 1){
+    print(column)
+  }
+}
+```
+
+From this we can see that digits 9 and 10 are what uniquely identifies a team. Thus, we can use just these digits to identify a team. By using these digits, we can have a 4 digit number that uniquely identifies a matchup. By having the smaller of the two digit numbers followed by the larger. Thius means that a match up between teams ending in 51 and 49 will always be identified as 4951 regardless of who is home or away.
+
+```{r}
+
+# Get two digit id for team
+two_digit_id = function (id){
+  digits = strsplit(as.character(id),"")[[1]][9:10]
+  merged = paste(digits[1],digits[2], sep = '')
+  number = as.numeric(merged)
+  return(number)
+}
+
+
+# Marge two digit ids with small number then bigger number
+# Team with small number is Left and team with larger is Right
+# Left team will be "left" anytime the two teams matchup.
+get_matchup_ids = function (rowid, data = game_data){
+  home_id = data$Home_ID[rowid]
+  away_id = data$Away_ID[rowid]
+  
+  LeftID = min(c(home_id, away_id))
+  RightID = max(c(home_id, away_id))
+  
+  home_2dgt = two_digit_id(home_id)
+  away_2dgt = two_digit_id(away_id)
+  
+  ordered = sort(c(home_2dgt, away_2dgt))
+  
+  matchupid = paste(ordered[1], ordered[2], sep="")
+  return(c(as.numeric(matchupid),LeftID, RightID))
+}
+
+# Functions for Matchup, left, and right teams respectively
+matchup_id_only = function(rowid){
+  matchup_id = get_matchup_ids(rowid)[1]
+  return(matchup_id)
+}
+
+left_id = function(rowid){
+  left = get_matchup_ids(rowid)[2]
+  return(left)
+}
+
+right_id = function(rowid){
+  right = get_matchup_ids(rowid)[3]
+  return(right)
+}
+
+
+
+matchup_ids = sapply(1:nrow(game_data), matchup_id_only)
+left_ids = sapply(1:nrow(game_data), left_id)
+right_ids = sapply(1:nrow(game_data), right_id)
+
+
+
+# Add Ids to dataframe
+
+game_data$Matchup_ID = matchup_ids
+game_data$Left_ID = left_ids
+game_data$Right_ID = right_ids
+
+```
+
+
+
+
+Duplicate the rest of the data in terms of left and right team
+
+Variables to duplicate
+```{r}
+variables = c("pts","FGPct","oreb","3Pct","TPG","TSG","TOG","PPG","SPG","OPG")
+```
+
+
+Created functions to easily call al variables
+```{r}
+# Adds left or right before variable (ex. Left_PPG)
+lr_var = function(original_var){
+  left = paste("Left_",original_var,sep = '')
+  right = paste("Right_",original_var,sep = '')
+  return(c(left,right))
+}
+
+#Adds home or away before variable (ex. Home_PPG)
+ha_var = function(original_var){
+  home = paste("Home_",original_var,sep = '')
+  away = paste("Away_",original_var,sep = '')
+  return(c(home, away))
+}
+```
+
+
+```{r}
+  
+
+# Duplicate row data into respective left or right version
+dupe_row_data = function(rowid, data, vars){
+  row = data[rowid,]
+
+  
+  if (row$Home_ID == row$Left_ID){
+    for (var in vars){
+    data[rowid,lr_var(var)[1]] = data[rowid,ha_var(var)[1]]
+    data[rowid,lr_var(var)[2]] = data[rowid,ha_var(var)[2]]
+    }
+  } 
+  else {
+    for (var in vars){
+    data[rowid,lr_var(var)[1]] = data[rowid,ha_var(var)[2]]
+    data[rowid,lr_var(var)[2]] = data[rowid,ha_var(var)[1]]
+    }
+  }
+  
+  return(data)
+}
+
+
+duplicate_data = function(data, variables){
+  
+
+    # Initiate left and right versions
+    for (var in variables){
+      data[,lr_var(var)[1]] = c(0) # Add left variables
+      data[,lr_var(var)[2]] = c(0) # Add right variables
+    }
+  
+    for (rowid in 1:nrow(data)){
+      data = dupe_row_data(rowid, data, variables)
+    }
+
+  
+  return(data)
+}
+
+matchup_data = duplicate_data(game_data, variables)
+```
+
+
+
+```{r}
+pred_spread = read_csv("../Datasets/PredictedSpreadsIDS.csv")
+pred_spread = pred_spread[order(nrow(pred_spread):1),]
+pred_spread$Day = c(0)
+
+
+matchup_data[c(4,3,2)]
+pred_spread$Day[1:nrow(matchup_data)] = matchup_data$Day
+pred_spread
+```
+
+```{r}
+add_predicted_spreads = function(pred_spreads, data1 = matchup_data){
+  
+  days = unique(data1$Day)
+  
+  for (day in days){
+    spreads = pred_spreads[pred_spreads$Day == day,]
+    subdata = data1[data1$Day == day,]
+    joined = merge(x = spreads, y = subdata, by.x = "Home ID", by.y = "Home_ID", all.x = F, all.y = F)
+    joined = joined[-c(4,7)]
+    names(joined)[5] = "Day"
+    joined = joined[c(1,2,4,5:7,3,8:ncol(joined))]
+    
+    if (day == 1){
+      final_data = joined
+    }
+    else
+    {
+      final_data = rbind(final_data,joined)
+    }
+    
+    
+  }
+  return(final_data)
+}
+```
+
+
+```{r}
+final_data = add_predicted_spreads(pred_spread, matchup_data)
+final_data
+```
+
+```{r}
+write.csv(final_data[-3],"../Datasets/Final_Data.csv")
+```
+
+
+```{r}
+no_na = final_data[which(is.na(final_data[7:8]) == F),]
+
+cor.test(no_na$Spread_Pred,no_na$Spread)
+```
+
+
+
